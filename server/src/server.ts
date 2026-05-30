@@ -58,7 +58,8 @@ app.get('/api/terminals', async (_req: Request, res: Response) => {
 app.post('/api/sessions/:id/launch', async (req: Request, res: Response) => {
   try {
     const terminal = (req.body?.terminal as string) || 'warp';
-    res.json(await launchSession(req.params.id, terminal));
+    const mode = req.body?.mode === 'tab' ? 'tab' : 'window';
+    res.json(await launchSession(req.params.id, terminal, mode));
   } catch (e) {
     res.status(400).json({ error: errMsg(e) });
   }

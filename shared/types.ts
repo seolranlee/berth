@@ -23,6 +23,7 @@ export interface TerminalInfo {
   id: string;
   name: string;
   available: boolean;
+  supportsTab: boolean; // 새 탭 실행 지원 여부 (iTerm2만 true)
 }
 
 export interface LaunchResult {

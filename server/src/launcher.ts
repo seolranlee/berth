@@ -8,6 +8,7 @@ import { getLiveSessionIds } from './active';
 export async function launchSession(
   sessionId: string,
   terminal = 'warp',
+  mode: 'window' | 'tab' = 'window',
 ): Promise<LaunchResult> {
   const session = await getSessionById(sessionId);
   if (!session) {
@@ -38,5 +39,6 @@ export async function launchSession(
     cwd: session.cwd,
     command,
     title: session.title,
+    mode,
   });
 }
