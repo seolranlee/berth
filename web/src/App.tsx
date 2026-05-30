@@ -6,6 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
+// idle(=진행중 아님)인데 한글 제목이 없는 세션만 "생성 대상"
+const needsTitle = (s: Session) => !s.active && !s.koreanTitle;
+const REFRESH_MS = 10_000; // 세션/진행중 상태를 지속 주기 갱신 → 배지 실시간 반영
+
 export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
@@ -16,26 +20,61 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.listSessions(), api.listTerminals()])
-      .then(([s, t]) => {
-        setSessions(s);
+    let cancelled = false;
+    let lastTrigger = 0;
+
+    // idle인데 제목 없는 세션이 있으면 생성 트리거 (30초 디바운스 + 서버도 중복 방지)
+    function maybeGenerate(list: Session[]) {
+      if (list.some(needsTitle) && Date.now() - lastTrigger > 30_000) {
+        lastTrigger = Date.now();
+        api.generateTitles().catch(() => {});
+      }
+    }
+
+    // 초기 로드 (실패 시에만 에러 노출)
+    (async () => {
+      try {
+        const [t, s] = await Promise.all([api.listTerminals(), api.listSessions()]);
+        if (cancelled) return;
         setTerminals(t);
         const firstAvail = t.find((x) => x.available);
         if (firstAvail) setTerminal(firstAvail.id);
-      })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+        setSessions(s);
+        maybeGenerate(s);
+        setLoading(false);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+          setLoading(false);
+        }
+      }
+    })();
+
+    // 지속 갱신: active 플래그·신규 세션·생성된 제목을 계속 반영 (폴링 오류는 무시)
+    const timer = setInterval(async () => {
+      try {
+        const fresh = await api.listSessions();
+        if (cancelled) return;
+        setSessions(fresh);
+        maybeGenerate(fresh);
+      } catch {
+        /* 일시 오류는 무시하고 다음 주기에 재시도 */
+      }
+    }, REFRESH_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, []);
 
   async function togglePin(sessionId: string, pinned: boolean) {
-    // 낙관적 업데이트
     setSessions((prev) =>
       prev.map((s) => (s.sessionId === sessionId ? { ...s, pinned } : s)),
     );
     try {
       await (pinned ? api.pin(sessionId) : api.unpin(sessionId));
     } catch {
-      // 실패 시 롤백
       setSessions((prev) =>
         prev.map((s) => (s.sessionId === sessionId ? { ...s, pinned: !pinned } : s)),
       );
@@ -43,6 +82,7 @@ export function App() {
   }
 
   const pinnedCount = useMemo(() => sessions.filter((s) => s.pinned).length, [sessions]);
+  const missingTitles = useMemo(() => sessions.filter(needsTitle).length, [sessions]);
 
   const visible = useMemo(() => {
     let list = sessions;
@@ -50,12 +90,11 @@ export function App() {
     const q = query.toLowerCase().trim();
     if (q) {
       list = list.filter((s) =>
-        [s.title, s.project, s.gitBranch, s.lastPrompt].some(
+        [s.koreanTitle, s.title, s.project, s.gitBranch, s.lastPrompt].some(
           (f) => f && f.toLowerCase().includes(q),
         ),
       );
     }
-    // 핀 먼저, 그룹 내 기존(최근) 순서 유지
     return [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned));
   }, [sessions, query, pinnedOnly]);
 
@@ -66,6 +105,7 @@ export function App() {
         <h1 className="text-lg font-semibold">berth</h1>
         <span className="text-sm text-muted-foreground">
           {loading ? '불러오는 중…' : `세션 ${sessions.length}개`}
+          {!loading && missingTitles > 0 && ` · 한글 제목 생성 중 (${missingTitles})`}
         </span>
       </header>
 
@@ -138,6 +178,8 @@ function SessionCard({
 
   const when = (session.updatedAt || '').slice(0, 16).replace('T', ' ');
   const loc = [session.project, session.gitBranch].filter(Boolean).join(' · ');
+  const mainTitle = session.koreanTitle ?? session.title;
+  const subTitle = session.koreanTitle ? session.title : null; // 한글 있으면 영어를 서브로
 
   async function copy() {
     await navigator.clipboard.writeText(session.resumeCommand);
@@ -174,7 +216,18 @@ function SessionCard({
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="font-medium">{session.title}</div>
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium">{mainTitle}</span>
+            {session.active && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-green-500/15 px-1.5 py-0.5 text-[10px] font-medium text-green-600">
+                <span className="size-1.5 animate-pulse rounded-full bg-green-500" />
+                진행중
+              </span>
+            )}
+          </div>
+          {subTitle && (
+            <div className="truncate text-xs text-muted-foreground/70">{subTitle}</div>
+          )}
           <div className="mt-1 text-xs text-muted-foreground">
             {when} · {loc || '?'} · {session.userTurns} turns
           </div>

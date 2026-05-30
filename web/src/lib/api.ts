@@ -23,4 +23,8 @@ export const api = {
     http<{ pinned: string[] }>(`/api/sessions/${sessionId}/pin`, { method: 'POST' }),
   unpin: (sessionId: string) =>
     http<{ pinned: string[] }>(`/api/sessions/${sessionId}/pin`, { method: 'DELETE' }),
+  generateTitles: () =>
+    http<{ generating: boolean; pending: number }>('/api/titles/generate', {
+      method: 'POST',
+    }),
 };
