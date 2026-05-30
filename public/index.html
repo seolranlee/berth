@@ -42,6 +42,7 @@
             <div class="sub">${when} · ${loc} · ${s.userTurns} turns</div>
             <div style="margin-top:8px">
               <span class="cmd">${s.resumeCommand}</span>
+              <button data-launch="${s.sessionId}">실행 ▶</button>
               <button data-cmd="${s.resumeCommand}">복사</button>
             </div>
             ${s.lastPrompt ? `<div class="last">⤷ ${escapeHtml(s.lastPrompt.slice(0, 100))}</div>` : ''}
@@ -56,12 +57,44 @@
       }
 
       listEl.addEventListener('click', async (e) => {
-        const btn = e.target.closest('button[data-cmd]');
-        if (!btn) return;
-        await navigator.clipboard.writeText(btn.dataset.cmd);
-        const prev = btn.textContent;
-        btn.textContent = '복사됨 ✓';
-        setTimeout(() => (btn.textContent = prev), 1200);
+        // 복사
+        const copyBtn = e.target.closest('button[data-cmd]');
+        if (copyBtn) {
+          await navigator.clipboard.writeText(copyBtn.dataset.cmd);
+          const prev = copyBtn.textContent;
+          copyBtn.textContent = '복사됨 ✓';
+          setTimeout(() => (copyBtn.textContent = prev), 1200);
+          return;
+        }
+        // 실행 (터미널에서 resume)
+        const launchBtn = e.target.closest('button[data-launch]');
+        if (launchBtn) {
+          const prev = launchBtn.textContent;
+          launchBtn.textContent = '실행 중…';
+          launchBtn.disabled = true;
+          try {
+            const r = await fetch(`/api/sessions/${launchBtn.dataset.launch}/launch`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ terminal: 'warp' }),
+            });
+            const data = await r.json();
+            if (r.ok) {
+              launchBtn.textContent = '실행됨 ✓';
+            } else {
+              launchBtn.textContent = '실패';
+              alert('실행 실패: ' + (data.error || r.status));
+            }
+          } catch (err) {
+            launchBtn.textContent = '실패';
+            alert('실행 실패: ' + err);
+          }
+          setTimeout(() => {
+            launchBtn.textContent = prev;
+            launchBtn.disabled = false;
+          }, 1500);
+          return;
+        }
       });
 
       qEl.addEventListener('input', () => {

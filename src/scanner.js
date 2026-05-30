@@ -119,7 +119,10 @@ export async function listSessions() {
     if (!dirent.isDirectory()) continue;
     const dirPath = path.join(PROJECTS_DIR, dirent.name);
     for (const f of fs.readdirSync(dirPath)) {
-      if (f.endsWith('.jsonl')) files.push(path.join(dirPath, f));
+      // 최상위 UUID 세션 파일만. agent-*.jsonl 등 서브에이전트/비세션 파일 제외
+      if (f.endsWith('.jsonl') && isValidSessionId(path.basename(f, '.jsonl'))) {
+        files.push(path.join(dirPath, f));
+      }
     }
   }
 
@@ -130,4 +133,24 @@ export async function listSessions() {
   return sessions
     .filter(Boolean)
     .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+}
+
+const SESSION_ID_RE =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+// sessionId가 UUID 형식인지 검증 (명령 주입 방지의 1차 방어선)
+export function isValidSessionId(id) {
+  return typeof id === 'string' && SESSION_ID_RE.test(id);
+}
+
+// id로 단일 세션 조회 (실행 시 cwd 등 권위 있는 값을 서버에서 직접 확보)
+export async function getSessionById(id) {
+  if (!isValidSessionId(id)) return null;
+  if (!fs.existsSync(PROJECTS_DIR)) return null;
+  for (const dirent of fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })) {
+    if (!dirent.isDirectory()) continue;
+    const file = path.join(PROJECTS_DIR, dirent.name, `${id}.jsonl`);
+    if (fs.existsSync(file)) return parseSession(file);
+  }
+  return null;
 }
