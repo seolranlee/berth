@@ -24,9 +24,13 @@ app.get('/api/sessions', async (req, res) => {
   }
 });
 
-// 지원 터미널 목록
-app.get('/api/terminals', (req, res) => {
-  res.json(listAdapters());
+// 지원 터미널 목록 (설치 여부 포함)
+app.get('/api/terminals', async (req, res) => {
+  try {
+    res.json(await listAdapters());
+  } catch (e) {
+    res.status(500).json({ error: String(e?.message || e) });
+  }
 });
 
 // 세션 실행 (선택한 터미널에서 claude --resume)

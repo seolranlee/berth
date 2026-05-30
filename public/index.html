@@ -22,6 +22,9 @@
     <h1>⚓ berth</h1>
     <div class="meta" id="meta">불러오는 중…</div>
     <input id="q" placeholder="제목 / 프로젝트 / 브랜치 검색…" />
+    <div style="margin-bottom: 16px; font-size: 13px; color: #555">
+      실행 터미널: <select id="term"></select>
+    </div>
     <div id="list"></div>
 
     <script>
@@ -29,6 +32,22 @@
       const listEl = document.getElementById('list');
       const metaEl = document.getElementById('meta');
       const qEl = document.getElementById('q');
+      const termEl = document.getElementById('term');
+
+      // 지원 터미널 목록 로드 (설치된 것만 선택 가능)
+      fetch('/api/terminals')
+        .then((r) => r.json())
+        .then((terms) => {
+          termEl.innerHTML = '';
+          for (const t of terms) {
+            const opt = document.createElement('option');
+            opt.value = t.id;
+            opt.textContent = t.available ? t.name : `${t.name} (미설치)`;
+            opt.disabled = !t.available;
+            termEl.appendChild(opt);
+          }
+        })
+        .catch(() => {});
 
       function render(items) {
         listEl.innerHTML = '';
@@ -76,7 +95,7 @@
             const r = await fetch(`/api/sessions/${launchBtn.dataset.launch}/launch`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ terminal: 'warp' }),
+              body: JSON.stringify({ terminal: termEl.value || 'warp' }),
             });
             const data = await r.json();
             if (r.ok) {
