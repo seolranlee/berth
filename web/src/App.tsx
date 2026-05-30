@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 
 // idle(=진행중 아님)인데 한글 제목이 없는 세션만 "생성 대상"
 const needsTitle = (s: Session) => !s.active && !s.koreanTitle;
+const REFRESH_MS = 10_000; // 세션/진행중 상태를 지속 주기 갱신 → 배지 실시간 반영
 
 export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -16,43 +17,31 @@ export function App() {
   const [query, setQuery] = useState('');
   const [pinnedOnly, setPinnedOnly] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
+    let lastTrigger = 0;
 
+    // idle인데 제목 없는 세션이 있으면 생성 트리거 (30초 디바운스 + 서버도 중복 방지)
+    function maybeGenerate(list: Session[]) {
+      if (list.some(needsTitle) && Date.now() - lastTrigger > 30_000) {
+        lastTrigger = Date.now();
+        api.generateTitles().catch(() => {});
+      }
+    }
+
+    // 초기 로드 (실패 시에만 에러 노출)
     (async () => {
       try {
-        const [s, t] = await Promise.all([api.listSessions(), api.listTerminals()]);
+        const [t, s] = await Promise.all([api.listTerminals(), api.listSessions()]);
         if (cancelled) return;
-        setSessions(s);
         setTerminals(t);
         const firstAvail = t.find((x) => x.available);
         if (firstAvail) setTerminal(firstAvail.id);
+        setSessions(s);
+        maybeGenerate(s);
         setLoading(false);
-
-        // idle인데 한글 제목 없는 세션이 있으면 백그라운드 생성 + 폴링으로 갱신
-        if (s.some(needsTitle)) {
-          setGenerating(true);
-          api.generateTitles().catch(() => {});
-          let polls = 0;
-          timer = setInterval(async () => {
-            polls += 1;
-            try {
-              const fresh = await api.listSessions();
-              if (cancelled) return;
-              setSessions(fresh);
-              if (!fresh.some(needsTitle) || polls >= 40) {
-                setGenerating(false);
-                if (timer) clearInterval(timer);
-              }
-            } catch {
-              /* 일시 오류 무시, 다음 폴링 */
-            }
-          }, 3000);
-        }
       } catch (e: unknown) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : String(e));
@@ -61,9 +50,21 @@ export function App() {
       }
     })();
 
+    // 지속 갱신: active 플래그·신규 세션·생성된 제목을 계속 반영 (폴링 오류는 무시)
+    const timer = setInterval(async () => {
+      try {
+        const fresh = await api.listSessions();
+        if (cancelled) return;
+        setSessions(fresh);
+        maybeGenerate(fresh);
+      } catch {
+        /* 일시 오류는 무시하고 다음 주기에 재시도 */
+      }
+    }, REFRESH_MS);
+
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
     };
   }, []);
 
@@ -104,7 +105,7 @@ export function App() {
         <h1 className="text-lg font-semibold">berth</h1>
         <span className="text-sm text-muted-foreground">
           {loading ? '불러오는 중…' : `세션 ${sessions.length}개`}
-          {generating && ` · 한글 제목 생성 중 (${missingTitles})`}
+          {!loading && missingTitles > 0 && ` · 한글 제목 생성 중 (${missingTitles})`}
         </span>
       </header>
 
