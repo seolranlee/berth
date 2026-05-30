@@ -181,7 +181,19 @@ export async function listSessions(): Promise<Session[]> {
 
   const sessions = await Promise.all(files.map((f) => parseSession(f).catch(() => null)));
 
-  return sessions
+  const sorted = sessions
     .filter((s): s is Session => s !== null)
-    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
+    .sort((a, b) => {
+      const byTime = String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+      if (byTime !== 0) return byTime;
+      return b.fileSize - a.fileSize; // 같은 시각이면 더 완전한(큰) 본 우선
+    });
+
+  // 같은 세션 UUID가 여러 프로젝트 디렉터리에 존재할 수 있다 (다른 cwd에서 resume,
+  // 머신 간 jsonl 복사 등). UUID는 전역 유일하므로 가장 최근(정렬상 첫) 본만 남긴다.
+  const byId = new Map<string, Session>();
+  for (const s of sorted) {
+    if (!byId.has(s.sessionId)) byId.set(s.sessionId, s);
+  }
+  return [...byId.values()];
 }
