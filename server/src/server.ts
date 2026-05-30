@@ -15,8 +15,8 @@ const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 app.use(express.json());
 
-// 정적 뷰어 (server/public — commit B에서 web/dist로 교체 예정)
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// 정적: 빌드된 React 앱 (web/dist). 개발 시엔 Vite(5173)가 서빙하고 /api만 프록시.
+app.use(express.static(path.join(__dirname, '..', '..', 'web', 'dist')));
 
 // 세션 목록
 app.get('/api/sessions', async (_req: Request, res: Response) => {
