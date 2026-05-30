@@ -1,0 +1,14 @@
+{
+  "name": "@seolranlee/berth",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A berth for your Claude Code sessions — dock, find, and resume.",
+  "type": "module",
+  "scripts": {
+    "scan": "node src/scan-cli.js",
+    "dev": "node src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  }
+}
