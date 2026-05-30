@@ -13,29 +13,64 @@ export function App() {
   const [query, setQuery] = useState('');
   const [pinnedOnly, setPinnedOnly] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.listSessions(), api.listTerminals()])
-      .then(([s, t]) => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    (async () => {
+      try {
+        const [s, t] = await Promise.all([api.listSessions(), api.listTerminals()]);
+        if (cancelled) return;
         setSessions(s);
         setTerminals(t);
         const firstAvail = t.find((x) => x.available);
         if (firstAvail) setTerminal(firstAvail.id);
-      })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))
-      .finally(() => setLoading(false));
+        setLoading(false);
+
+        // 한글 제목이 없는 세션이 있으면 백그라운드 생성 트리거 + 폴링으로 갱신
+        if (s.some((x) => !x.koreanTitle)) {
+          setGenerating(true);
+          api.generateTitles().catch(() => {});
+          let polls = 0;
+          timer = setInterval(async () => {
+            polls += 1;
+            try {
+              const fresh = await api.listSessions();
+              if (cancelled) return;
+              setSessions(fresh);
+              if (fresh.every((x) => x.koreanTitle) || polls >= 40) {
+                setGenerating(false);
+                if (timer) clearInterval(timer);
+              }
+            } catch {
+              /* 일시 오류는 무시하고 다음 폴링 */
+            }
+          }, 3000);
+        }
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
   }, []);
 
   async function togglePin(sessionId: string, pinned: boolean) {
-    // 낙관적 업데이트
     setSessions((prev) =>
       prev.map((s) => (s.sessionId === sessionId ? { ...s, pinned } : s)),
     );
     try {
       await (pinned ? api.pin(sessionId) : api.unpin(sessionId));
     } catch {
-      // 실패 시 롤백
       setSessions((prev) =>
         prev.map((s) => (s.sessionId === sessionId ? { ...s, pinned: !pinned } : s)),
       );
@@ -43,6 +78,10 @@ export function App() {
   }
 
   const pinnedCount = useMemo(() => sessions.filter((s) => s.pinned).length, [sessions]);
+  const missingTitles = useMemo(
+    () => sessions.filter((s) => !s.koreanTitle).length,
+    [sessions],
+  );
 
   const visible = useMemo(() => {
     let list = sessions;
@@ -50,12 +89,11 @@ export function App() {
     const q = query.toLowerCase().trim();
     if (q) {
       list = list.filter((s) =>
-        [s.title, s.project, s.gitBranch, s.lastPrompt].some(
+        [s.koreanTitle, s.title, s.project, s.gitBranch, s.lastPrompt].some(
           (f) => f && f.toLowerCase().includes(q),
         ),
       );
     }
-    // 핀 먼저, 그룹 내 기존(최근) 순서 유지
     return [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned));
   }, [sessions, query, pinnedOnly]);
 
@@ -66,6 +104,7 @@ export function App() {
         <h1 className="text-lg font-semibold">berth</h1>
         <span className="text-sm text-muted-foreground">
           {loading ? '불러오는 중…' : `세션 ${sessions.length}개`}
+          {generating && ` · 한글 제목 생성 중 (${missingTitles})`}
         </span>
       </header>
 
@@ -138,6 +177,8 @@ function SessionCard({
 
   const when = (session.updatedAt || '').slice(0, 16).replace('T', ' ');
   const loc = [session.project, session.gitBranch].filter(Boolean).join(' · ');
+  const mainTitle = session.koreanTitle ?? session.title;
+  const subTitle = session.koreanTitle ? session.title : null; // 한글 있으면 영어를 서브로
 
   async function copy() {
     await navigator.clipboard.writeText(session.resumeCommand);
@@ -174,7 +215,10 @@ function SessionCard({
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="font-medium">{session.title}</div>
+          <div className="font-medium">{mainTitle}</div>
+          {subTitle && (
+            <div className="truncate text-xs text-muted-foreground/70">{subTitle}</div>
+          )}
           <div className="mt-1 text-xs text-muted-foreground">
             {when} · {loc || '?'} · {session.userTurns} turns
           </div>

@@ -15,6 +15,7 @@ export interface Session {
   fileSize: number;
   resumeCommand: string;
   pinned: boolean;
+  koreanTitle: string | null; // LLM 생성 한글 제목 (없으면 아직 미생성)
 }
 
 export interface TerminalInfo {

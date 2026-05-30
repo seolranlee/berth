@@ -6,6 +6,8 @@ import { listSessions, isValidSessionId } from './scanner';
 import { launchSession } from './launcher';
 import { listAdapters } from './adapters/index';
 import { getPinned, setPinned } from './store';
+import { generateKoreanTitle } from './title-generator';
+import { getTitle, setTitle } from './title-store';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -19,13 +21,14 @@ app.use(express.json());
 // 정적: 빌드된 React 앱 (web/dist). 개발 시엔 Vite(5173)가 서빙하고 /api만 프록시.
 app.use(express.static(path.join(__dirname, '..', '..', 'web', 'dist')));
 
-// 세션 목록 (즐겨찾기 상태 주입, 핀 먼저 정렬)
+// 세션 목록 (즐겨찾기 + 한글 제목 캐시 주입, 핀 우선 정렬)
 app.get('/api/sessions', async (_req: Request, res: Response) => {
   try {
     const pinned = new Set(getPinned());
     const sessions = (await listSessions()).map((s) => ({
       ...s,
       pinned: pinned.has(s.sessionId),
+      koreanTitle: getTitle(s.sessionId, s.updatedAt),
     }));
     // 핀 먼저 (안정 정렬이라 그룹 내 최근순 유지)
     sessions.sort((a, b) => Number(b.pinned) - Number(a.pinned));
@@ -69,6 +72,46 @@ app.delete('/api/sessions/:id/pin', (req: Request, res: Response) => {
     return;
   }
   res.json({ pinned: setPinned(req.params.id, false) });
+});
+
+// --- 한글 제목 백그라운드 생성 ---
+let titleGenRunning = false;
+
+async function generateMissingTitles(): Promise<void> {
+  if (titleGenRunning) return;
+  titleGenRunning = true;
+  try {
+    const sessions = await listSessions();
+    const pending = sessions.filter((s) => !getTitle(s.sessionId, s.updatedAt));
+    const CONCURRENCY = 4;
+    let i = 0;
+    const worker = async () => {
+      while (i < pending.length) {
+        const s = pending[i++];
+        try {
+          const title = await generateKoreanTitle(s);
+          setTitle(s.sessionId, title, s.updatedAt);
+        } catch {
+          // 실패 세션은 스킵 (다음 트리거 때 재시도)
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: CONCURRENCY }, worker));
+  } finally {
+    titleGenRunning = false;
+  }
+}
+
+// 누락/stale 한글 제목 생성 트리거 (즉시 반환, 생성은 백그라운드)
+app.post('/api/titles/generate', async (_req: Request, res: Response) => {
+  try {
+    const sessions = await listSessions();
+    const pending = sessions.filter((s) => !getTitle(s.sessionId, s.updatedAt)).length;
+    void generateMissingTitles(); // fire-and-forget
+    res.json({ generating: true, pending });
+  } catch (e) {
+    res.status(500).json({ error: errMsg(e) });
+  }
 });
 
 app.listen(PORT, HOST, () => {
