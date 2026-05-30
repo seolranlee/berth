@@ -6,8 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
-// idle(=진행중 아님)인데 한글 제목이 없는 세션만 "생성 대상"
-const needsTitle = (s: Session) => !s.active && !s.koreanTitle;
+// idle·비노이즈인데 한글 제목이 없는 세션만 "생성 대상".
+// 노이즈(빈/trivial) 제외 이유: 일부 환경(claude --no-session-persistence 미적용)에서
+// 제목 생성 호출이 빈 세션 파일을 만들어, 그게 또 생성 대상이 되는 무한 증식 루프 발생.
+const needsTitle = (s: Session) => !s.active && !s.noise && !s.koreanTitle;
 const REFRESH_MS = 10_000; // 세션/진행중 상태를 지속 주기 갱신 → 배지 실시간 반영
 
 export function App() {

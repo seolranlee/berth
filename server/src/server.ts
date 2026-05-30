@@ -93,7 +93,7 @@ async function generateMissingTitles(): Promise<void> {
     const sessions = await listSessions();
     // 실행 중인 세션은 제외 — 내용 미완이라 제목이 흔들림. 종료된 세션만 생성.
     const pending = sessions.filter(
-      (s) => !live.has(s.sessionId.toLowerCase()) && !getTitle(s.sessionId),
+      (s) => !s.noise && !live.has(s.sessionId.toLowerCase()) && !getTitle(s.sessionId),
     );
     const CONCURRENCY = 4;
     let i = 0;
@@ -120,7 +120,7 @@ app.post('/api/titles/generate', async (_req: Request, res: Response) => {
     const live = await getLiveSessionIds();
     const sessions = await listSessions();
     const pending = sessions.filter(
-      (s) => !live.has(s.sessionId.toLowerCase()) && !getTitle(s.sessionId),
+      (s) => !s.noise && !live.has(s.sessionId.toLowerCase()) && !getTitle(s.sessionId),
     ).length;
     void generateMissingTitles(); // fire-and-forget
     res.json({ generating: true, pending });
