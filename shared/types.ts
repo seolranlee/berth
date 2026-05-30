@@ -14,6 +14,7 @@ export interface Session {
   updatedAt: string;
   fileSize: number;
   resumeCommand: string;
+  pinned: boolean;
 }
 
 export interface TerminalInfo {

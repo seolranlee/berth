@@ -115,6 +115,7 @@ async function parseSession(filePath: string): Promise<Session> {
     updatedAt: lastTimestamp || stat.mtime.toISOString(),
     fileSize: stat.size,
     resumeCommand: `claude --resume ${sessionId}`,
+    pinned: false, // 서버 라우트에서 store 기준으로 채워짐
   };
 }
 

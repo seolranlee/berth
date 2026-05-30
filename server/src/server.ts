@@ -2,9 +2,10 @@ import express from 'express';
 import type { Request, Response } from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { listSessions } from './scanner';
+import { listSessions, isValidSessionId } from './scanner';
 import { launchSession } from './launcher';
 import { listAdapters } from './adapters/index';
+import { getPinned, setPinned } from './store';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -18,10 +19,17 @@ app.use(express.json());
 // 정적: 빌드된 React 앱 (web/dist). 개발 시엔 Vite(5173)가 서빙하고 /api만 프록시.
 app.use(express.static(path.join(__dirname, '..', '..', 'web', 'dist')));
 
-// 세션 목록
+// 세션 목록 (즐겨찾기 상태 주입, 핀 먼저 정렬)
 app.get('/api/sessions', async (_req: Request, res: Response) => {
   try {
-    res.json(await listSessions());
+    const pinned = new Set(getPinned());
+    const sessions = (await listSessions()).map((s) => ({
+      ...s,
+      pinned: pinned.has(s.sessionId),
+    }));
+    // 핀 먼저 (안정 정렬이라 그룹 내 최근순 유지)
+    sessions.sort((a, b) => Number(b.pinned) - Number(a.pinned));
+    res.json(sessions);
   } catch (e) {
     res.status(500).json({ error: errMsg(e) });
   }
@@ -44,6 +52,23 @@ app.post('/api/sessions/:id/launch', async (req: Request, res: Response) => {
   } catch (e) {
     res.status(400).json({ error: errMsg(e) });
   }
+});
+
+// 즐겨찾기 추가/해제 (서버 영속화: ~/.berth/favorites.json)
+app.post('/api/sessions/:id/pin', (req: Request, res: Response) => {
+  if (!isValidSessionId(req.params.id)) {
+    res.status(400).json({ error: '잘못된 세션 id' });
+    return;
+  }
+  res.json({ pinned: setPinned(req.params.id, true) });
+});
+
+app.delete('/api/sessions/:id/pin', (req: Request, res: Response) => {
+  if (!isValidSessionId(req.params.id)) {
+    res.status(400).json({ error: '잘못된 세션 id' });
+    return;
+  }
+  res.json({ pinned: setPinned(req.params.id, false) });
 });
 
 app.listen(PORT, HOST, () => {

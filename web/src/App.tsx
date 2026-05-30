@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Session, TerminalInfo } from '@shared';
-import { Anchor, Check, Copy, Play, Search } from 'lucide-react';
+import { Anchor, Check, Copy, Play, Search, Star } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
 export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
   const [terminal, setTerminal] = useState('warp');
   const [query, setQuery] = useState('');
+  const [pinnedOnly, setPinnedOnly] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,15 +27,37 @@ export function App() {
       .finally(() => setLoading(false));
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.toLowerCase().trim();
-    if (!q) return sessions;
-    return sessions.filter((s) =>
-      [s.title, s.project, s.gitBranch, s.lastPrompt].some(
-        (f) => f && f.toLowerCase().includes(q),
-      ),
+  async function togglePin(sessionId: string, pinned: boolean) {
+    // 낙관적 업데이트
+    setSessions((prev) =>
+      prev.map((s) => (s.sessionId === sessionId ? { ...s, pinned } : s)),
     );
-  }, [sessions, query]);
+    try {
+      await (pinned ? api.pin(sessionId) : api.unpin(sessionId));
+    } catch {
+      // 실패 시 롤백
+      setSessions((prev) =>
+        prev.map((s) => (s.sessionId === sessionId ? { ...s, pinned: !pinned } : s)),
+      );
+    }
+  }
+
+  const pinnedCount = useMemo(() => sessions.filter((s) => s.pinned).length, [sessions]);
+
+  const visible = useMemo(() => {
+    let list = sessions;
+    if (pinnedOnly) list = list.filter((s) => s.pinned);
+    const q = query.toLowerCase().trim();
+    if (q) {
+      list = list.filter((s) =>
+        [s.title, s.project, s.gitBranch, s.lastPrompt].some(
+          (f) => f && f.toLowerCase().includes(q),
+        ),
+      );
+    }
+    // 핀 먼저, 그룹 내 기존(최근) 순서 유지
+    return [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned));
+  }, [sessions, query, pinnedOnly]);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
@@ -55,6 +79,15 @@ export function App() {
             className="pl-8"
           />
         </div>
+        <Button
+          variant={pinnedOnly ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setPinnedOnly((v) => !v)}
+          title="즐겨찾기만 보기"
+        >
+          <Star className={cn(pinnedOnly && 'fill-current')} />
+          즐겨찾기{pinnedCount ? ` ${pinnedCount}` : ''}
+        </Button>
         <select
           value={terminal}
           onChange={(e) => setTerminal(e.target.value)}
@@ -71,12 +104,19 @@ export function App() {
       {error && <p className="text-sm text-destructive">에러: {error}</p>}
 
       <ul className="space-y-2">
-        {filtered.map((s) => (
-          <SessionCard key={s.sessionId} session={s} terminal={terminal} />
+        {visible.map((s) => (
+          <SessionCard
+            key={s.sessionId}
+            session={s}
+            terminal={terminal}
+            onTogglePin={togglePin}
+          />
         ))}
       </ul>
-      {!loading && !error && filtered.length === 0 && (
-        <p className="text-sm text-muted-foreground">결과 없음</p>
+      {!loading && !error && visible.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          {pinnedOnly ? '즐겨찾기한 세션이 없어요' : '결과 없음'}
+        </p>
       )}
     </div>
   );
@@ -84,7 +124,15 @@ export function App() {
 
 type LaunchState = 'idle' | 'launching' | 'done' | 'error';
 
-function SessionCard({ session, terminal }: { session: Session; terminal: string }) {
+function SessionCard({
+  session,
+  terminal,
+  onTogglePin,
+}: {
+  session: Session;
+  terminal: string;
+  onTogglePin: (sessionId: string, pinned: boolean) => void;
+}) {
   const [copied, setCopied] = useState(false);
   const [launchState, setLaunchState] = useState<LaunchState>('idle');
 
@@ -118,16 +166,32 @@ function SessionCard({ session, terminal }: { session: Session; terminal: string
           : '실행';
 
   return (
-    <li className="rounded-lg border bg-card p-3.5 text-card-foreground transition-colors hover:bg-accent/40">
-      <div className="font-medium">{session.title}</div>
-      <div className="mt-1 text-xs text-muted-foreground">
-        {when} · {loc || '?'} · {session.userTurns} turns
-      </div>
-      {session.lastPrompt && (
-        <div className="mt-1.5 truncate text-xs text-muted-foreground/80">
-          ⤷ {session.lastPrompt}
-        </div>
+    <li
+      className={cn(
+        'rounded-lg border bg-card p-3.5 text-card-foreground transition-colors hover:bg-accent/40',
+        session.pinned && 'border-l-2 border-l-yellow-500',
       )}
+    >
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="font-medium">{session.title}</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {when} · {loc || '?'} · {session.userTurns} turns
+          </div>
+          {session.lastPrompt && (
+            <div className="mt-1.5 truncate text-xs text-muted-foreground/80">
+              ⤷ {session.lastPrompt}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={() => onTogglePin(session.sessionId, !session.pinned)}
+          title={session.pinned ? '즐겨찾기 해제' : '즐겨찾기'}
+          className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        >
+          <Star className={cn('size-4', session.pinned && 'fill-yellow-500 text-yellow-500')} />
+        </button>
+      </div>
       <div className="mt-3 flex items-center gap-2">
         <Button size="sm" onClick={launch} disabled={launchState === 'launching'}>
           <Play /> {launchLabel}
