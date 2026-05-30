@@ -18,6 +18,7 @@ export function App() {
   const [terminal, setTerminal] = useState('warp');
   const [query, setQuery] = useState('');
   const [pinnedOnly, setPinnedOnly] = useState(false);
+  const [activeOnly, setActiveOnly] = useState(false);
   const [hideNoise, setHideNoise] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -95,12 +96,14 @@ export function App() {
     () => sessions.filter((s) => s.noise && !s.pinned && !s.active).length,
     [sessions],
   );
+  const activeCount = useMemo(() => sessions.filter((s) => s.active).length, [sessions]);
 
   const visible = useMemo(() => {
     let list = sessions;
     // 노이즈 세션 제거 (핀·진행중은 노이즈여도 항상 표시)
     if (hideNoise) list = list.filter((s) => !s.noise || s.pinned || s.active);
     if (pinnedOnly) list = list.filter((s) => s.pinned);
+    if (activeOnly) list = list.filter((s) => s.active);
     const q = query.toLowerCase().trim();
     if (q) {
       list = list.filter((s) =>
@@ -110,7 +113,7 @@ export function App() {
       );
     }
     return [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned));
-  }, [sessions, query, pinnedOnly, hideNoise]);
+  }, [sessions, query, pinnedOnly, activeOnly, hideNoise]);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
@@ -132,7 +135,8 @@ export function App() {
         </span>
       </div>
 
-      <div className="mb-4 flex items-center gap-3">
+      {/* Row 1 · 검색 + 실행 터미널 */}
+      <div className="mb-2.5 flex items-center gap-3">
         <div className="relative flex-1">
           <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -142,6 +146,24 @@ export function App() {
             className="pl-8"
           />
         </div>
+        <div className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+          <span>실행 터미널</span>
+          <select
+            value={terminal}
+            onChange={(e) => setTerminal(e.target.value)}
+            className="h-9 rounded-md border bg-transparent px-3 text-sm text-foreground outline-none focus-visible:border-ring"
+          >
+            {terminals.map((t) => (
+              <option key={t.id} value={t.id} disabled={!t.available}>
+                {t.available ? t.name : `${t.name} (미설치)`}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Row 2 · 필터 chip */}
+      <div className="mb-4 flex flex-wrap items-center gap-2">
         <Button
           variant={pinnedOnly ? 'default' : 'outline'}
           size="sm"
@@ -150,6 +172,17 @@ export function App() {
         >
           <Star className={cn(pinnedOnly && 'fill-current')} />
           즐겨찾기{pinnedCount ? ` ${pinnedCount}` : ''}
+        </Button>
+        <Button
+          variant={activeOnly ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setActiveOnly((v) => !v)}
+          title="진행 중인 세션만 보기"
+        >
+          <span
+            className={cn('size-1.5 rounded-full bg-green-500', activeOnly && 'animate-pulse')}
+          />
+          진행중{activeCount ? ` ${activeCount}` : ''}
         </Button>
         {noiseCount > 0 && (
           <Button
@@ -161,17 +194,6 @@ export function App() {
             노이즈 세션 제거 {noiseCount}
           </Button>
         )}
-        <select
-          value={terminal}
-          onChange={(e) => setTerminal(e.target.value)}
-          className="h-9 rounded-md border bg-transparent px-3 text-sm outline-none focus-visible:border-ring"
-        >
-          {terminals.map((t) => (
-            <option key={t.id} value={t.id} disabled={!t.available}>
-              {t.available ? t.name : `${t.name} (미설치)`}
-            </option>
-          ))}
-        </select>
       </div>
 
       {error && <p className="text-sm text-destructive">에러: {error}</p>}
@@ -189,7 +211,11 @@ export function App() {
       </ul>
       {!loading && !error && visible.length === 0 && (
         <p className="text-sm text-muted-foreground">
-          {pinnedOnly ? '즐겨찾기한 세션이 없어요' : '결과 없음'}
+          {pinnedOnly
+            ? '즐겨찾기한 세션이 없어요'
+            : activeOnly
+              ? '진행 중인 세션이 없어요'
+              : '결과 없음'}
         </p>
       )}
     </div>
@@ -266,7 +292,7 @@ function SessionCard({
             )}
           </div>
           {subTitle && (
-            <div className="truncate text-xs text-muted-foreground/70">{subTitle}</div>
+            <div className="truncate text-sm text-muted-foreground/70">{subTitle}</div>
           )}
           <div className="mt-1 text-xs text-muted-foreground">
             {when} · {loc || '?'} · {session.userTurns} turns
