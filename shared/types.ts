@@ -14,6 +14,7 @@ export interface Session {
   updatedAt: string;
   fileSize: number;
   resumeCommand: string;
+  noise: boolean; // 빈/resume/clear 등 trivial 세션 (UI 기본 숨김)
   pinned: boolean;
   koreanTitle: string | null; // LLM 생성 한글 제목 (없으면 아직 미생성/진행중)
   active: boolean; // 최근 활동 = 진행중 (진행중이면 제목 생성 보류)

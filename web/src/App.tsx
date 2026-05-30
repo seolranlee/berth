@@ -16,6 +16,7 @@ export function App() {
   const [terminal, setTerminal] = useState('warp');
   const [query, setQuery] = useState('');
   const [pinnedOnly, setPinnedOnly] = useState(false);
+  const [hideNoise, setHideNoise] = useState(true);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -87,9 +88,16 @@ export function App() {
     () => terminals.find((t) => t.id === terminal)?.supportsTab ?? false,
     [terminals, terminal],
   );
+  // 핀·진행중이 아닌 노이즈 세션 수 (기본 숨김 대상)
+  const noiseCount = useMemo(
+    () => sessions.filter((s) => s.noise && !s.pinned && !s.active).length,
+    [sessions],
+  );
 
   const visible = useMemo(() => {
     let list = sessions;
+    // 노이즈 세션 제거 (핀·진행중은 노이즈여도 항상 표시)
+    if (hideNoise) list = list.filter((s) => !s.noise || s.pinned || s.active);
     if (pinnedOnly) list = list.filter((s) => s.pinned);
     const q = query.toLowerCase().trim();
     if (q) {
@@ -100,7 +108,7 @@ export function App() {
       );
     }
     return [...list].sort((a, b) => Number(b.pinned) - Number(a.pinned));
-  }, [sessions, query, pinnedOnly]);
+  }, [sessions, query, pinnedOnly, hideNoise]);
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8">
@@ -108,7 +116,7 @@ export function App() {
         <Anchor className="size-5 text-primary" />
         <h1 className="text-lg font-semibold">berth</h1>
         <span className="text-sm text-muted-foreground">
-          {loading ? '불러오는 중…' : `세션 ${sessions.length}개`}
+          {loading ? '불러오는 중…' : `세션 ${visible.length}개`}
           {!loading && missingTitles > 0 && ` · 한글 제목 생성 중 (${missingTitles})`}
         </span>
       </header>
@@ -141,6 +149,16 @@ export function App() {
           <Star className={cn(pinnedOnly && 'fill-current')} />
           즐겨찾기{pinnedCount ? ` ${pinnedCount}` : ''}
         </Button>
+        {noiseCount > 0 && (
+          <Button
+            variant={hideNoise ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setHideNoise((v) => !v)}
+            title="빈/resume/clear 등 노이즈 세션 제거·표시 토글"
+          >
+            노이즈 세션 제거 {noiseCount}
+          </Button>
+        )}
         <select
           value={terminal}
           onChange={(e) => setTerminal(e.target.value)}

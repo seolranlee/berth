@@ -16,6 +16,27 @@ function truncate(s: string | null | undefined, n = MAX_PREVIEW): string | null 
   return t.length > n ? t.slice(0, n) + '…' : t;
 }
 
+const TRIVIAL_PROMPTS = new Set(['resume', 'clear', 'exit', 'continue', '계속', 'cd ..']);
+
+// 노이즈 세션 = 빈 세션이거나, 의미있는 작업 없이 trivial 입력만 한 1턴 이하 세션.
+// aiTitle이 있으면 클로드가 요약을 생성한 것 = 실제 작업 → 노이즈 아님.
+function computeNoise(
+  userTurns: number,
+  firstPrompt: string | null,
+  aiTitle: string | null,
+): boolean {
+  if (userTurns === 0) return true; // 빈 세션
+  if (aiTitle) return false; // 의미있는 제목 생성됨 → 실제 작업
+  if (userTurns <= 1) {
+    const fp = (firstPrompt ?? '').trim().toLowerCase();
+    if (!fp) return true;
+    if (fp.startsWith('/')) return true; // 슬래시 명령(오타 포함)
+    if (TRIVIAL_PROMPTS.has(fp)) return true;
+    if (fp.length <= 3) return true; // 극히 짧은 입력
+  }
+  return false;
+}
+
 interface JsonlRecord {
   type?: string;
   cwd?: string;
@@ -115,6 +136,7 @@ async function parseSession(filePath: string): Promise<Session> {
     updatedAt: lastTimestamp || stat.mtime.toISOString(),
     fileSize: stat.size,
     resumeCommand: `claude --resume ${sessionId}`,
+    noise: computeNoise(userTurns, firstPrompt, aiTitle),
     pinned: false, // 서버 라우트에서 store 기준으로 채워짐
     koreanTitle: null, // 서버 라우트에서 title 캐시 기준으로 채워짐
     active: false, // 서버 라우트에서 recency 기준으로 채워짐
