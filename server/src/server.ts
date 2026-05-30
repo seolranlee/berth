@@ -8,16 +8,12 @@ import { listAdapters } from './adapters/index';
 import { getPinned, setPinned } from './store';
 import { generateKoreanTitle } from './title-generator';
 import { getTitle, setTitle } from './title-store';
+import { getLiveSessionIds } from './active';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = 8787;
 const HOST = '127.0.0.1'; // 보안: 로컬호스트에만 바인딩 (외부 노출 금지)
-
-// 최근 N분 내 활동한 세션 = 진행중 (파일이 쓰이는 중 = 가장 확실한 신호)
-const ACTIVE_WINDOW_MS = 10 * 60 * 1000;
-const isActive = (updatedAt: string) =>
-  Date.now() - new Date(updatedAt).getTime() < ACTIVE_WINDOW_MS;
 
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -30,8 +26,9 @@ app.use(express.static(path.join(__dirname, '..', '..', 'web', 'dist')));
 app.get('/api/sessions', async (_req: Request, res: Response) => {
   try {
     const pinned = new Set(getPinned());
+    const live = await getLiveSessionIds();
     const sessions = (await listSessions()).map((s) => {
-      const active = isActive(s.updatedAt);
+      const active = live.has(s.sessionId.toLowerCase());
       return {
         ...s,
         pinned: pinned.has(s.sessionId),
@@ -91,10 +88,11 @@ async function generateMissingTitles(): Promise<void> {
   if (titleGenRunning) return;
   titleGenRunning = true;
   try {
+    const live = await getLiveSessionIds();
     const sessions = await listSessions();
-    // 진행중(active) 세션은 제외 — 내용 미완이라 제목이 흔들림. idle 세션만 생성.
+    // 실행 중인 세션은 제외 — 내용 미완이라 제목이 흔들림. 종료된 세션만 생성.
     const pending = sessions.filter(
-      (s) => !isActive(s.updatedAt) && !getTitle(s.sessionId),
+      (s) => !live.has(s.sessionId.toLowerCase()) && !getTitle(s.sessionId),
     );
     const CONCURRENCY = 4;
     let i = 0;
@@ -118,9 +116,10 @@ async function generateMissingTitles(): Promise<void> {
 // 누락/stale 한글 제목 생성 트리거 (즉시 반환, 생성은 백그라운드, 진행중 제외)
 app.post('/api/titles/generate', async (_req: Request, res: Response) => {
   try {
+    const live = await getLiveSessionIds();
     const sessions = await listSessions();
     const pending = sessions.filter(
-      (s) => !isActive(s.updatedAt) && !getTitle(s.sessionId),
+      (s) => !live.has(s.sessionId.toLowerCase()) && !getTitle(s.sessionId),
     ).length;
     void generateMissingTitles(); // fire-and-forget
     res.json({ generating: true, pending });

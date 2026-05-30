@@ -13,11 +13,19 @@ const TERMINAL_APP_PATHS = [
 
 export function buildTerminalAppScript({ cwd, command }: { cwd: string; command: string }): string {
   const shellCmd = `cd ${shellQuote(cwd)} && ${command}`;
-  // do script (대상 미지정) = 새 창에서 실행. activate가 콜드스타트 커버.
+  const cmd = asEscape(shellCmd);
+  // 콜드스타트 시 앱이 자동으로 여는 기본 창을 재사용(빈 창 중복 방지),
+  // 이미 실행 중이면 새 창(사용자 기존 창 보존). running은 앱을 안 켜는 조회.
   return [
     'tell application "Terminal"',
+    '  set wasRunning to running',
     '  activate',
-    `  do script "${asEscape(shellCmd)}"`,
+    '  if wasRunning then',
+    `    do script "${cmd}"`,
+    '  else',
+    '    delay 0.3',
+    `    do script "${cmd}" in window 1`,
+    '  end if',
     'end tell',
   ].join('\n');
 }
