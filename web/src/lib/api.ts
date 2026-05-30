@@ -13,11 +13,11 @@ async function http<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   listSessions: () => http<Session[]>('/api/sessions'),
   listTerminals: () => http<TerminalInfo[]>('/api/terminals'),
-  launch: (sessionId: string, terminal: string) =>
+  launch: (sessionId: string, terminal: string, mode: 'window' | 'tab' = 'window') =>
     http<LaunchResult>(`/api/sessions/${sessionId}/launch`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ terminal }),
+      body: JSON.stringify({ terminal, mode }),
     }),
   pin: (sessionId: string) =>
     http<{ pinned: string[] }>(`/api/sessions/${sessionId}/pin`, { method: 'POST' }),

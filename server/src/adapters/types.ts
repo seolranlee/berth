@@ -5,6 +5,7 @@ export interface LaunchArgs {
   cwd: string;
   command: string;
   title?: string;
+  mode?: 'window' | 'tab'; // 새 창 / 새 탭 (tab은 supportsTab 어댑터만)
 }
 
 // 모든 터미널 어댑터가 구현하는 계약.
@@ -12,6 +13,7 @@ export interface LaunchArgs {
 export interface TerminalAdapter {
   id: string;
   name: string;
+  supportsTab?: boolean; // 새 탭 실행 지원 (없으면 false 취급)
   isAvailable(): Promise<boolean>;
   launch(args: LaunchArgs): Promise<LaunchResult>;
 }

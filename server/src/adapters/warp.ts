@@ -42,6 +42,7 @@ function openUri(uri: string): Promise<void> {
 export const warpAdapter: TerminalAdapter = {
   id: 'warp',
   name: 'Warp',
+  supportsTab: false, // Warp는 URI만 가능, 탭에 명령 주입 불가
 
   async isAvailable() {
     return fs.existsSync('/Applications/Warp.app');

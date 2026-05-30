@@ -22,6 +22,7 @@ export async function listAdapters(): Promise<TerminalInfo[]> {
       id: a.id,
       name: a.name,
       available: a.isAvailable ? await a.isAvailable().catch(() => false) : true,
+      supportsTab: a.supportsTab ?? false,
     })),
   );
 }

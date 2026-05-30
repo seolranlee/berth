@@ -43,6 +43,7 @@ function runAppleScript(script: string): Promise<string> {
 export const terminalAppAdapter: TerminalAdapter = {
   id: 'terminal',
   name: 'Terminal.app',
+  supportsTab: false, // 네이티브 탭 명령 없음 (System Events 키스트로크 필요 → 보류)
 
   async isAvailable() {
     return TERMINAL_APP_PATHS.some((p) => fs.existsSync(p));

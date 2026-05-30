@@ -83,6 +83,10 @@ export function App() {
 
   const pinnedCount = useMemo(() => sessions.filter((s) => s.pinned).length, [sessions]);
   const missingTitles = useMemo(() => sessions.filter(needsTitle).length, [sessions]);
+  const selectedSupportsTab = useMemo(
+    () => terminals.find((t) => t.id === terminal)?.supportsTab ?? false,
+    [terminals, terminal],
+  );
 
   const visible = useMemo(() => {
     let list = sessions;
@@ -158,6 +162,7 @@ export function App() {
             key={s.sessionId}
             session={s}
             terminal={terminal}
+            supportsTab={selectedSupportsTab}
             onTogglePin={togglePin}
           />
         ))}
@@ -171,19 +176,22 @@ export function App() {
   );
 }
 
-type LaunchState = 'idle' | 'launching' | 'done' | 'error';
+type LaunchMode = 'window' | 'tab';
 
 function SessionCard({
   session,
   terminal,
+  supportsTab,
   onTogglePin,
 }: {
   session: Session;
   terminal: string;
+  supportsTab: boolean;
   onTogglePin: (sessionId: string, pinned: boolean) => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const [launchState, setLaunchState] = useState<LaunchState>('idle');
+  const [busy, setBusy] = useState<LaunchMode | null>(null);
+  const [flash, setFlash] = useState<{ mode: LaunchMode; ok: boolean } | null>(null);
 
   const when = (session.updatedAt || '').slice(0, 16).replace('T', ' ');
   const loc = [session.project, session.gitBranch].filter(Boolean).join(' · ');
@@ -196,25 +204,28 @@ function SessionCard({
     setTimeout(() => setCopied(false), 1200);
   }
 
-  async function launch() {
-    setLaunchState('launching');
+  async function launch(mode: LaunchMode) {
+    setBusy(mode);
+    setFlash(null);
     try {
-      await api.launch(session.sessionId, terminal);
-      setLaunchState('done');
+      await api.launch(session.sessionId, terminal, mode);
+      setFlash({ mode, ok: true });
     } catch {
-      setLaunchState('error');
+      setFlash({ mode, ok: false });
+    } finally {
+      setBusy(null);
+      setTimeout(() => setFlash(null), 1500);
     }
-    setTimeout(() => setLaunchState('idle'), 1500);
   }
 
-  const launchLabel =
-    launchState === 'launching'
-      ? '실행 중…'
-      : launchState === 'done'
-        ? '실행됨'
-        : launchState === 'error'
-          ? '실패'
-          : '실행';
+  // 모드별 버튼 라벨 (실행중/실행됨/실패/기본)
+  function label(mode: LaunchMode, base: string): string {
+    if (busy === mode) return '실행 중…';
+    if (flash?.mode === mode) return flash.ok ? '실행됨' : '실패';
+    return base;
+  }
+
+  const disabled = session.active || busy !== null;
 
   return (
     <li
@@ -255,18 +266,33 @@ function SessionCard({
         </button>
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <Button
-          size="sm"
-          onClick={launch}
-          disabled={session.active || launchState === 'launching'}
-          title={session.active ? '이미 진행 중인 세션이라 새로 실행할 수 없어요' : undefined}
-        >
-          <Play /> {session.active ? '진행 중' : launchLabel}
-        </Button>
+        {session.active ? (
+          <Button size="sm" disabled title="이미 실행 중인 세션이라 새로 실행할 수 없어요">
+            <Play /> 진행 중
+          </Button>
+        ) : supportsTab ? (
+          <>
+            <Button size="sm" onClick={() => launch('tab')} disabled={disabled}>
+              <Play /> {label('tab', '새 탭')}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => launch('window')}
+              disabled={disabled}
+            >
+              {label('window', '새 창')}
+            </Button>
+          </>
+        ) : (
+          <Button size="sm" onClick={() => launch('window')} disabled={disabled}>
+            <Play /> {label('window', '실행')}
+          </Button>
+        )}
         <Button size="sm" variant="outline" onClick={copy}>
           {copied ? <Check /> : <Copy />} {copied ? '복사됨' : '복사'}
         </Button>
-        <code className="ml-auto max-w-[45%] truncate rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+        <code className="ml-auto max-w-[38%] truncate rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
           {session.resumeCommand}
         </code>
       </div>
