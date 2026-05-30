@@ -2,56 +2,64 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
+import type { Session } from '@shared';
 
-// 클로드 코드가 세션을 기록하는 디렉토리.
-// 구조: ~/.claude/projects/<인코딩된-cwd>/<sessionId>.jsonl
+// 클로드 코드 세션 기록 위치: ~/.claude/projects/<인코딩된-cwd>/<sessionId>.jsonl
 export const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 
 const MAX_PREVIEW = 200;
 
-function truncate(s, n = MAX_PREVIEW) {
+function truncate(s: string | null | undefined, n = MAX_PREVIEW): string | null {
   if (!s) return null;
   const t = String(s).replace(/\s+/g, ' ').trim();
   if (!t) return null;
   return t.length > n ? t.slice(0, n) + '…' : t;
 }
 
-// user 레코드에서 "사람이 실제로 친 프롬프트" 텍스트만 뽑아낸다.
-// (도구 결과/시스템 래퍼/명령 출력은 제외)
-function extractUserText(rec) {
+interface JsonlRecord {
+  type?: string;
+  cwd?: string;
+  gitBranch?: string;
+  timestamp?: string;
+  aiTitle?: string;
+  lastPrompt?: string;
+  message?: { role?: string; content?: unknown };
+}
+
+// user 레코드에서 사람이 실제로 친 프롬프트 텍스트만 추출 (도구결과/시스템래퍼 제외)
+function extractUserText(rec: JsonlRecord): string | null {
   const m = rec.message;
   if (!m) return null;
-  let c = m.content;
-  let text = null;
+  const c = m.content;
+  let text: string | null = null;
   if (typeof c === 'string') {
     text = c;
   } else if (Array.isArray(c)) {
     const parts = c
       .filter((b) => b && b.type === 'text' && typeof b.text === 'string')
-      .map((b) => b.text);
+      .map((b) => b.text as string);
     if (parts.length) text = parts.join('\n');
   }
   if (!text) return null;
   const trimmed = text.trim();
   if (!trimmed) return null;
-  // <command-...>, <local-command...>, <system-reminder> 같은 래퍼 / Caveat 안내 제외
   if (trimmed.startsWith('<')) return null;
   if (trimmed.startsWith('Caveat:')) return null;
   return trimmed;
 }
 
 // 세션 jsonl 한 개 → 목록 표시용 메타데이터 요약
-async function parseSession(filePath) {
+async function parseSession(filePath: string): Promise<Session> {
   const sessionId = path.basename(filePath, '.jsonl');
   const stat = fs.statSync(filePath);
 
-  let aiTitle = null; // 최신 ai-title (계속 갱신됨)
-  let lastPrompt = null; // 최신 last-prompt
-  let cwd = null;
-  let gitBranch = null;
-  let firstPrompt = null;
-  let firstTimestamp = null;
-  let lastTimestamp = null;
+  let aiTitle: string | null = null;
+  let lastPrompt: string | null = null;
+  let cwd: string | null = null;
+  let gitBranch: string | null = null;
+  let firstPrompt: string | null = null;
+  let firstTimestamp: string | null = null;
+  let lastTimestamp: string | null = null;
   let userTurns = 0;
 
   const rl = readline.createInterface({
@@ -61,11 +69,11 @@ async function parseSession(filePath) {
 
   for await (const line of rl) {
     if (!line.trim()) continue;
-    let rec;
+    let rec: JsonlRecord;
     try {
       rec = JSON.parse(line);
     } catch {
-      continue; // 깨진 줄은 스킵
+      continue; // 깨진 줄 스킵
     }
 
     if (rec.cwd && !cwd) cwd = rec.cwd;
@@ -83,10 +91,10 @@ async function parseSession(filePath) {
         if (rec.lastPrompt) lastPrompt = rec.lastPrompt;
         break;
       case 'user': {
-        const text = extractUserText(rec);
-        if (text) {
+        const userText = extractUserText(rec);
+        if (userText) {
           userTurns++;
-          if (!firstPrompt) firstPrompt = text;
+          if (!firstPrompt) firstPrompt = userText;
         }
         break;
       }
@@ -110,41 +118,16 @@ async function parseSession(filePath) {
   };
 }
 
-// 모든 프로젝트의 모든 세션을 스캔 → 최근 업데이트 순 정렬
-export async function listSessions() {
-  if (!fs.existsSync(PROJECTS_DIR)) return [];
-
-  const files = [];
-  for (const dirent of fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })) {
-    if (!dirent.isDirectory()) continue;
-    const dirPath = path.join(PROJECTS_DIR, dirent.name);
-    for (const f of fs.readdirSync(dirPath)) {
-      // 최상위 UUID 세션 파일만. agent-*.jsonl 등 서브에이전트/비세션 파일 제외
-      if (f.endsWith('.jsonl') && isValidSessionId(path.basename(f, '.jsonl'))) {
-        files.push(path.join(dirPath, f));
-      }
-    }
-  }
-
-  const sessions = await Promise.all(
-    files.map((f) => parseSession(f).catch(() => null)),
-  );
-
-  return sessions
-    .filter(Boolean)
-    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
-}
-
 const SESSION_ID_RE =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
-// sessionId가 UUID 형식인지 검증 (명령 주입 방지의 1차 방어선)
-export function isValidSessionId(id) {
+// sessionId가 UUID 형식인지 검증 (명령 주입 방지 1차 방어선)
+export function isValidSessionId(id: string): boolean {
   return typeof id === 'string' && SESSION_ID_RE.test(id);
 }
 
-// id로 단일 세션 조회 (실행 시 cwd 등 권위 있는 값을 서버에서 직접 확보)
-export async function getSessionById(id) {
+// id로 단일 세션 조회 (실행 시 cwd를 서버가 직접 확보)
+export async function getSessionById(id: string): Promise<Session | null> {
   if (!isValidSessionId(id)) return null;
   if (!fs.existsSync(PROJECTS_DIR)) return null;
   for (const dirent of fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })) {
@@ -153,4 +136,27 @@ export async function getSessionById(id) {
     if (fs.existsSync(file)) return parseSession(file);
   }
   return null;
+}
+
+// 모든 프로젝트의 최상위 UUID 세션 스캔 → 최근 업데이트순 정렬
+// (agent-*.jsonl 등 서브에이전트/비세션 파일은 제외)
+export async function listSessions(): Promise<Session[]> {
+  if (!fs.existsSync(PROJECTS_DIR)) return [];
+
+  const files: string[] = [];
+  for (const dirent of fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })) {
+    if (!dirent.isDirectory()) continue;
+    const dirPath = path.join(PROJECTS_DIR, dirent.name);
+    for (const f of fs.readdirSync(dirPath)) {
+      if (f.endsWith('.jsonl') && isValidSessionId(path.basename(f, '.jsonl'))) {
+        files.push(path.join(dirPath, f));
+      }
+    }
+  }
+
+  const sessions = await Promise.all(files.map((f) => parseSession(f).catch(() => null)));
+
+  return sessions
+    .filter((s): s is Session => s !== null)
+    .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
 }

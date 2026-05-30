@@ -1,9 +1,13 @@
-import { getSessionById } from './scanner.js';
-import { getAdapter } from './adapters/index.js';
+import type { LaunchResult } from '@shared';
+import { getSessionById } from './scanner';
+import { getAdapter } from './adapters/index';
 
 // 세션을 지정 터미널에서 resume.
 // cwd는 클라이언트 입력을 믿지 않고 서버가 세션 파일에서 직접 확보한다.
-export async function launchSession(sessionId, terminal = 'warp') {
+export async function launchSession(
+  sessionId: string,
+  terminal = 'warp',
+): Promise<LaunchResult> {
   const session = await getSessionById(sessionId);
   if (!session) {
     throw new Error(`세션을 찾을 수 없거나 잘못된 id: ${sessionId}`);
@@ -20,7 +24,7 @@ export async function launchSession(sessionId, terminal = 'warp') {
     throw new Error(`${adapter.name}가 설치되어 있지 않음`);
   }
 
-  // sessionId는 getSessionById에서 UUID 형식 검증을 통과함 → 명령에 안전하게 사용
+  // sessionId는 getSessionById에서 UUID 검증 통과 → 명령에 안전하게 사용
   const command = `claude --resume ${sessionId}`;
   return adapter.launch({
     sessionId,

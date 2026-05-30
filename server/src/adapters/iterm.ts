@@ -1,13 +1,11 @@
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
+import type { LaunchArgs, TerminalAdapter } from './types';
 
-// 셸 인용: 작은따옴표로 감싸고 내부 작은따옴표만 이스케이프
-const shellQuote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
-// AppleScript 더블쿼트 문자열 이스케이프: 백슬래시·큰따옴표
-const asEscape = (s) => String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+const shellQuote = (s: string) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+const asEscape = (s: string) => String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
-// 테스트 가능하도록 스크립트 생성을 분리
-export function buildItermScript({ cwd, command }) {
+export function buildItermScript({ cwd, command }: { cwd: string; command: string }): string {
   const shellCmd = `cd ${shellQuote(cwd)} && ${command}`;
   return [
     'tell application "iTerm"',
@@ -20,7 +18,7 @@ export function buildItermScript({ cwd, command }) {
   ].join('\n');
 }
 
-function runAppleScript(script) {
+function runAppleScript(script: string): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('osascript', ['-e', script], (err, stdout, stderr) => {
       if (err) reject(new Error(String(stderr || err.message).trim()));
@@ -29,8 +27,8 @@ function runAppleScript(script) {
   });
 }
 
-// iTerm2 어댑터: AppleScript로 새 창을 만들고 cwd 이동 후 명령 실행.
-export const itermAdapter = {
+// iTerm2 어댑터: AppleScript로 새 창 생성 + cwd 이동 후 명령 실행.
+export const itermAdapter: TerminalAdapter = {
   id: 'iterm',
   name: 'iTerm2',
 
@@ -38,7 +36,7 @@ export const itermAdapter = {
     return fs.existsSync('/Applications/iTerm.app');
   },
 
-  async launch({ cwd, command }) {
+  async launch({ cwd, command }: LaunchArgs) {
     await runAppleScript(buildItermScript({ cwd, command }));
     return { ok: true, terminal: 'iterm', via: 'applescript', cwd, command };
   },
