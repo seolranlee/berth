@@ -246,8 +246,13 @@ function SessionCard({
         </button>
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <Button size="sm" onClick={launch} disabled={launchState === 'launching'}>
-          <Play /> {launchLabel}
+        <Button
+          size="sm"
+          onClick={launch}
+          disabled={session.active || launchState === 'launching'}
+          title={session.active ? '이미 진행 중인 세션이라 새로 실행할 수 없어요' : undefined}
+        >
+          <Play /> {session.active ? '진행 중' : launchLabel}
         </Button>
         <Button size="sm" variant="outline" onClick={copy}>
           {copied ? <Check /> : <Copy />} {copied ? '복사됨' : '복사'}
