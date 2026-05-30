@@ -7,12 +7,25 @@ const asEscape = (s: string) => String(s).replace(/\\/g, '\\\\').replace(/"/g, '
 
 export function buildItermScript({ cwd, command }: { cwd: string; command: string }): string {
   const shellCmd = `cd ${shellQuote(cwd)} && ${command}`;
+  const cmd = asEscape(shellCmd);
+  // 콜드스타트 시 iTerm이 띄운 기본 창 재사용(빈 창 중복 방지, 없으면 생성),
+  // 이미 실행 중이면 새 창. running은 앱을 안 켜는 조회.
   return [
     'tell application "iTerm"',
-    '  activate', // 꺼져 있으면 여기서 실행됨 (콜드스타트 커버)
-    '  set newWindow to (create window with default profile)',
-    '  tell current session of newWindow',
-    `    write text "${asEscape(shellCmd)}"`,
+    '  set wasRunning to running',
+    '  activate',
+    '  if wasRunning then',
+    '    set targetWindow to (create window with default profile)',
+    '  else',
+    '    delay 0.3',
+    '    try',
+    '      set targetWindow to current window',
+    '    on error',
+    '      set targetWindow to (create window with default profile)',
+    '    end try',
+    '  end if',
+    '  tell current session of targetWindow',
+    `    write text "${cmd}"`,
     '  end tell',
     'end tell',
   ].join('\n');
