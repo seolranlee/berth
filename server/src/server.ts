@@ -37,7 +37,7 @@ app.get('/api/sessions', async (_req: Request, res: Response) => {
         pinned: pinned.has(s.sessionId),
         active,
         // 진행중 세션은 내용이 미완 → 한글 제목 표시 보류 (영어 + 배지로 표시)
-        koreanTitle: active ? null : getTitle(s.sessionId, s.updatedAt),
+        koreanTitle: active ? null : getTitle(s.sessionId),
       };
     });
     // 핀 먼저 (안정 정렬이라 그룹 내 최근순 유지)
@@ -94,7 +94,7 @@ async function generateMissingTitles(): Promise<void> {
     const sessions = await listSessions();
     // 진행중(active) 세션은 제외 — 내용 미완이라 제목이 흔들림. idle 세션만 생성.
     const pending = sessions.filter(
-      (s) => !isActive(s.updatedAt) && !getTitle(s.sessionId, s.updatedAt),
+      (s) => !isActive(s.updatedAt) && !getTitle(s.sessionId),
     );
     const CONCURRENCY = 4;
     let i = 0;
@@ -120,7 +120,7 @@ app.post('/api/titles/generate', async (_req: Request, res: Response) => {
   try {
     const sessions = await listSessions();
     const pending = sessions.filter(
-      (s) => !isActive(s.updatedAt) && !getTitle(s.sessionId, s.updatedAt),
+      (s) => !isActive(s.updatedAt) && !getTitle(s.sessionId),
     ).length;
     void generateMissingTitles(); // fire-and-forget
     res.json({ generating: true, pending });
