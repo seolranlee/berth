@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Session, TerminalInfo } from '@shared';
-import { Anchor, Check, Copy, Play, Search, Star } from 'lucide-react';
+import { Anchor, Check, Copy, Info, Play, Search, Star } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -158,6 +158,15 @@ export function App() {
           {pinnedOnly ? '즐겨찾기한 세션이 없어요' : '결과 없음'}
         </p>
       )}
+
+      <footer className="mt-8 flex items-start gap-2 border-t pt-4 text-xs text-muted-foreground">
+        <Info className="mt-0.5 size-3.5 shrink-0" />
+        <span>
+          실행 시 빈 터미널 창이 함께 뜬다면 터미널 앱의 <b>창 복원</b> 기능 때문이에요. 세션을{' '}
+          <code className="rounded bg-muted px-1 py-0.5">/exit</code>로 닫거나 터미널의 "창
+          복원(restore windows)" 설정을 끄면 사라집니다.
+        </span>
+      </footer>
     </div>
   );
 }
