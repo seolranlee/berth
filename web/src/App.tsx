@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
+// idle(=진행중 아님)인데 한글 제목이 없는 세션만 "생성 대상"
+const needsTitle = (s: Session) => !s.active && !s.koreanTitle;
+
 export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
@@ -30,8 +33,8 @@ export function App() {
         if (firstAvail) setTerminal(firstAvail.id);
         setLoading(false);
 
-        // 한글 제목이 없는 세션이 있으면 백그라운드 생성 트리거 + 폴링으로 갱신
-        if (s.some((x) => !x.koreanTitle)) {
+        // idle인데 한글 제목 없는 세션이 있으면 백그라운드 생성 + 폴링으로 갱신
+        if (s.some(needsTitle)) {
           setGenerating(true);
           api.generateTitles().catch(() => {});
           let polls = 0;
@@ -41,12 +44,12 @@ export function App() {
               const fresh = await api.listSessions();
               if (cancelled) return;
               setSessions(fresh);
-              if (fresh.every((x) => x.koreanTitle) || polls >= 40) {
+              if (!fresh.some(needsTitle) || polls >= 40) {
                 setGenerating(false);
                 if (timer) clearInterval(timer);
               }
             } catch {
-              /* 일시 오류는 무시하고 다음 폴링 */
+              /* 일시 오류 무시, 다음 폴링 */
             }
           }, 3000);
         }
@@ -78,10 +81,7 @@ export function App() {
   }
 
   const pinnedCount = useMemo(() => sessions.filter((s) => s.pinned).length, [sessions]);
-  const missingTitles = useMemo(
-    () => sessions.filter((s) => !s.koreanTitle).length,
-    [sessions],
-  );
+  const missingTitles = useMemo(() => sessions.filter(needsTitle).length, [sessions]);
 
   const visible = useMemo(() => {
     let list = sessions;
@@ -215,7 +215,15 @@ function SessionCard({
     >
       <div className="flex items-start gap-2">
         <div className="min-w-0 flex-1">
-          <div className="font-medium">{mainTitle}</div>
+          <div className="flex items-center gap-1.5">
+            <span className="font-medium">{mainTitle}</span>
+            {session.active && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-green-500/15 px-1.5 py-0.5 text-[10px] font-medium text-green-600">
+                <span className="size-1.5 animate-pulse rounded-full bg-green-500" />
+                진행중
+              </span>
+            )}
+          </div>
           {subTitle && (
             <div className="truncate text-xs text-muted-foreground/70">{subTitle}</div>
           )}

@@ -15,7 +15,8 @@ export interface Session {
   fileSize: number;
   resumeCommand: string;
   pinned: boolean;
-  koreanTitle: string | null; // LLM 생성 한글 제목 (없으면 아직 미생성)
+  koreanTitle: string | null; // LLM 생성 한글 제목 (없으면 아직 미생성/진행중)
+  active: boolean; // 최근 활동 = 진행중 (진행중이면 제목 생성 보류)
 }
 
 export interface TerminalInfo {
