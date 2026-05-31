@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Session, TerminalInfo } from '@shared';
-import { Anchor, Check, Copy, Info, Play, Search, Star, Trash2 } from 'lucide-react';
+import { Anchor, Check, Copy, Info, Play, Search, Square, Star, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -100,6 +100,14 @@ export function App() {
   async function deleteSession(sessionId: string) {
     await api.deleteSession(sessionId);
     setSessions((prev) => prev.filter((s) => s.sessionId !== sessionId));
+  }
+
+  // 진행 중인 세션 종료 (서버가 claude 프로세스 SIGTERM). 성공 시 active 해제 (다음 폴링에서 확정).
+  async function terminateSession(sessionId: string) {
+    await api.terminate(sessionId);
+    setSessions((prev) =>
+      prev.map((s) => (s.sessionId === sessionId ? { ...s, active: false } : s)),
+    );
   }
 
   // 노이즈 세션 일괄 삭제 후 목록 갱신
@@ -271,6 +279,7 @@ export function App() {
             supportsTab={selectedSupportsTab}
             onTogglePin={togglePin}
             onDelete={deleteSession}
+            onTerminate={terminateSession}
           />
         ))}
       </ul>
@@ -319,12 +328,14 @@ function SessionCard({
   supportsTab,
   onTogglePin,
   onDelete,
+  onTerminate,
 }: {
   session: Session;
   terminal: string;
   supportsTab: boolean;
   onTogglePin: (sessionId: string, pinned: boolean) => void;
   onDelete: (sessionId: string) => Promise<void>;
+  onTerminate: (sessionId: string) => Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState<LaunchMode | null>(null);
@@ -332,6 +343,9 @@ function SessionCard({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteFailed, setDeleteFailed] = useState(false);
+  const [confirmingTerminate, setConfirmingTerminate] = useState(false);
+  const [terminating, setTerminating] = useState(false);
+  const [terminateFailed, setTerminateFailed] = useState(false);
 
   const when = formatWhen(session.updatedAt);
   const loc = [session.project, session.gitBranch].filter(Boolean).join(' · ');
@@ -353,6 +367,20 @@ function SessionCard({
       setDeleting(false);
       setDeleteFailed(true);
       setTimeout(() => setDeleteFailed(false), 1500);
+    }
+  }
+
+  async function doTerminate() {
+    setTerminating(true);
+    setTerminateFailed(false);
+    try {
+      await onTerminate(session.sessionId);
+      setConfirmingTerminate(false); // 성공 → 부모가 active=false → idle 레이아웃으로 전환
+    } catch {
+      setTerminateFailed(true);
+      setTimeout(() => setTerminateFailed(false), 1500);
+    } finally {
+      setTerminating(false);
     }
   }
 
@@ -445,12 +473,41 @@ function SessionCard({
             {deleting ? '삭제 중…' : '삭제'}
           </Button>
         </div>
+      ) : confirmingTerminate ? (
+        <div className="mt-3 flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">
+            {terminateFailed
+              ? '종료 실패 — 다시 시도해 주세요'
+              : '이 세션을 종료할까요? (기록은 보존돼요)'}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setConfirmingTerminate(false)}
+            disabled={terminating}
+          >
+            취소
+          </Button>
+          <Button size="sm" variant="destructive" onClick={doTerminate} disabled={terminating}>
+            {terminating ? '종료 중…' : '종료'}
+          </Button>
+        </div>
       ) : (
         <div className="mt-3 flex items-center gap-2">
           {session.active ? (
-            <Button size="sm" disabled title="이미 실행 중인 세션이라 새로 실행할 수 없어요">
-              <Play /> 진행 중
-            </Button>
+            <>
+              <Button size="sm" disabled title="이미 실행 중인 세션이라 새로 실행할 수 없어요">
+                <Play /> 진행 중
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmingTerminate(true)}
+                title="이 세션의 claude 프로세스를 종료 (기록은 보존)"
+              >
+                <Square /> 종료
+              </Button>
+            </>
           ) : supportsTab ? (
             <>
               <Button size="sm" onClick={() => launch('tab')} disabled={disabled}>
