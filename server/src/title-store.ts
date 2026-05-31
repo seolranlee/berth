@@ -37,3 +37,12 @@ export function setTitle(sessionId: string, title: string, basedOn: string): voi
   store[sessionId] = { title, basedOn };
   write(store);
 }
+
+// 세션 삭제 시 캐시 엔트리 정리
+export function removeTitle(sessionId: string): void {
+  const store = read();
+  if (sessionId in store) {
+    delete store[sessionId];
+    write(store);
+  }
+}

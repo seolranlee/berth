@@ -7,8 +7,9 @@ import { launchSession } from './launcher';
 import { listAdapters } from './adapters/index';
 import { getPinned, setPinned } from './store';
 import { generateKoreanTitle } from './title-generator';
-import { getTitle, setTitle } from './title-store';
+import { getTitle, setTitle, removeTitle } from './title-store';
 import { getLiveSessionIds } from './active';
+import { trashSession } from './trash';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -80,6 +81,58 @@ app.delete('/api/sessions/:id/pin', (req: Request, res: Response) => {
     return;
   }
   res.json({ pinned: setPinned(req.params.id, false) });
+});
+
+// 세션 삭제 (소프트: ~/.berth/trash 로 이동, 복구 가능). 진행 중인 세션은 차단.
+app.delete('/api/sessions/:id', async (req: Request, res: Response) => {
+  const id = req.params.id;
+  if (!isValidSessionId(id)) {
+    res.status(400).json({ error: '잘못된 세션 id' });
+    return;
+  }
+  try {
+    const live = await getLiveSessionIds();
+    if (live.has(id.toLowerCase())) {
+      res.status(409).json({ error: '진행 중인 세션은 삭제할 수 없어요' });
+      return;
+    }
+    const trashed = await trashSession(id);
+    if (trashed === 0) {
+      res.status(404).json({ error: '세션을 찾을 수 없어요' });
+      return;
+    }
+    removeTitle(id);
+    setPinned(id, false); // 즐겨찾기였다면 함께 정리
+    res.json({ deleted: true, trashed });
+  } catch (e) {
+    res.status(500).json({ error: errMsg(e) });
+  }
+});
+
+// 노이즈 세션 일괄 삭제 (휴지통 이동). 핀·진행 중인 세션은 제외 (UI noiseCount 기준과 동일).
+app.post('/api/sessions/delete-noise', async (_req: Request, res: Response) => {
+  try {
+    const pinned = new Set(getPinned());
+    const live = await getLiveSessionIds();
+    const sessions = await listSessions();
+    const targets = sessions.filter(
+      (s) => s.noise && !pinned.has(s.sessionId) && !live.has(s.sessionId.toLowerCase()),
+    );
+    let deleted = 0;
+    for (const s of targets) {
+      try {
+        if ((await trashSession(s.sessionId)) > 0) {
+          removeTitle(s.sessionId);
+          deleted++;
+        }
+      } catch {
+        // 개별 실패는 건너뛰고 계속
+      }
+    }
+    res.json({ deleted });
+  } catch (e) {
+    res.status(500).json({ error: errMsg(e) });
+  }
 });
 
 // --- 한글 제목 백그라운드 생성 ---
