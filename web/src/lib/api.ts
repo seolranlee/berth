@@ -27,4 +27,10 @@ export const api = {
     http<{ generating: boolean; pending: number }>('/api/titles/generate', {
       method: 'POST',
     }),
+  deleteSession: (sessionId: string) =>
+    http<{ deleted: boolean; trashed: number }>(`/api/sessions/${sessionId}`, {
+      method: 'DELETE',
+    }),
+  deleteNoise: () =>
+    http<{ deleted: number }>('/api/sessions/delete-noise', { method: 'POST' }),
 };

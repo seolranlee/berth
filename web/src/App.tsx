@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Session, TerminalInfo } from '@shared';
-import { Anchor, Check, Copy, Info, Play, Search, Star } from 'lucide-react';
+import { Anchor, Check, Copy, Info, Play, Search, Star, Trash2 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -20,6 +20,8 @@ export function App() {
   const [pinnedOnly, setPinnedOnly] = useState(false);
   const [activeOnly, setActiveOnly] = useState(false);
   const [hideNoise, setHideNoise] = useState(true);
+  const [confirmingBulkDelete, setConfirmingBulkDelete] = useState(false);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -82,6 +84,26 @@ export function App() {
       setSessions((prev) =>
         prev.map((s) => (s.sessionId === sessionId ? { ...s, pinned: !pinned } : s)),
       );
+    }
+  }
+
+  // 세션 삭제 (소프트 — 서버가 휴지통으로 이동). 성공 시 목록에서 제거.
+  async function deleteSession(sessionId: string) {
+    await api.deleteSession(sessionId);
+    setSessions((prev) => prev.filter((s) => s.sessionId !== sessionId));
+  }
+
+  // 노이즈 세션 일괄 삭제 후 목록 갱신
+  async function handleBulkDelete() {
+    setBulkDeleting(true);
+    try {
+      await api.deleteNoise();
+      setSessions(await api.listSessions());
+    } catch {
+      /* 실패는 무시 — 다음 폴링에서 보정 */
+    } finally {
+      setBulkDeleting(false);
+      setConfirmingBulkDelete(false);
     }
   }
 
@@ -194,6 +216,39 @@ export function App() {
             노이즈 세션 제거 {noiseCount}
           </Button>
         )}
+        {noiseCount > 0 &&
+          (confirmingBulkDelete ? (
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              {noiseCount}개 휴지통으로?
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setConfirmingBulkDelete(false)}
+                disabled={bulkDeleting}
+              >
+                취소
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={handleBulkDelete}
+                disabled={bulkDeleting}
+              >
+                {bulkDeleting ? '삭제 중…' : '삭제'}
+              </Button>
+            </span>
+          ) : (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setConfirmingBulkDelete(true)}
+              title="노이즈 세션을 모두 휴지통으로 이동"
+              className="text-muted-foreground"
+            >
+              <Trash2 /> 노이즈 세션 일괄 삭제
+              <NoiseInfo />
+            </Button>
+          ))}
       </div>
 
       {error && <p className="text-sm text-destructive">에러: {error}</p>}
@@ -206,6 +261,7 @@ export function App() {
             terminal={terminal}
             supportsTab={selectedSupportsTab}
             onTogglePin={togglePin}
+            onDelete={deleteSession}
           />
         ))}
       </ul>
@@ -222,6 +278,30 @@ export function App() {
   );
 }
 
+// 노이즈 세션 판단 기준을 (i) 호버 툴팁으로 설명 (scanner.ts의 computeNoise와 동일 기준)
+function NoiseInfo() {
+  return (
+    <span className="group relative inline-flex items-center">
+      <Info className="size-3.5 cursor-help text-muted-foreground/70 transition-colors hover:text-foreground" />
+      <span
+        role="tooltip"
+        className="pointer-events-none absolute top-full right-0 z-20 mt-1.5 w-72 rounded-md border bg-background p-2.5 text-left text-xs leading-relaxed font-normal whitespace-normal text-muted-foreground opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100"
+      >
+        <span className="mb-1 block font-medium text-foreground">노이즈 세션 판단 기준</span>
+        대화가 거의 없는 세션이에요. 아래 중 하나면 노이즈로 봅니다:
+        <span className="mt-1 block">• 사용자 발화가 0턴인 빈 세션</span>
+        <span className="block">
+          • 1턴 이하이면서 resume·clear·exit·continue·계속·cd .. 같은 trivial 입력
+        </span>
+        <span className="block">• 슬래시(/) 명령이거나 3자 이하의 매우 짧은 입력</span>
+        <span className="mt-1 block">
+          단, AI 요약 제목이 생성된 세션은 실제 작업으로 보고 제외해요.
+        </span>
+      </span>
+    </span>
+  );
+}
+
 type LaunchMode = 'window' | 'tab';
 
 function SessionCard({
@@ -229,15 +309,20 @@ function SessionCard({
   terminal,
   supportsTab,
   onTogglePin,
+  onDelete,
 }: {
   session: Session;
   terminal: string;
   supportsTab: boolean;
   onTogglePin: (sessionId: string, pinned: boolean) => void;
+  onDelete: (sessionId: string) => Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
   const [busy, setBusy] = useState<LaunchMode | null>(null);
   const [flash, setFlash] = useState<{ mode: LaunchMode; ok: boolean } | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteFailed, setDeleteFailed] = useState(false);
 
   const when = (session.updatedAt || '').slice(0, 16).replace('T', ' ');
   const loc = [session.project, session.gitBranch].filter(Boolean).join(' · ');
@@ -248,6 +333,18 @@ function SessionCard({
     await navigator.clipboard.writeText(session.resumeCommand);
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
+  }
+
+  async function doDelete() {
+    setDeleting(true);
+    setDeleteFailed(false);
+    try {
+      await onDelete(session.sessionId); // 성공 시 부모가 목록에서 제거 → 카드 언마운트
+    } catch {
+      setDeleting(false);
+      setDeleteFailed(true);
+      setTimeout(() => setDeleteFailed(false), 1500);
+    }
   }
 
   async function launch(mode: LaunchMode) {
@@ -303,45 +400,75 @@ function SessionCard({
             </div>
           )}
         </div>
-        <button
-          onClick={() => onTogglePin(session.sessionId, !session.pinned)}
-          title={session.pinned ? '즐겨찾기 해제' : '즐겨찾기'}
-          className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-        >
-          <Star className={cn('size-4', session.pinned && 'fill-yellow-500 text-yellow-500')} />
-        </button>
-      </div>
-      <div className="mt-3 flex items-center gap-2">
-        {session.active ? (
-          <Button size="sm" disabled title="이미 실행 중인 세션이라 새로 실행할 수 없어요">
-            <Play /> 진행 중
-          </Button>
-        ) : supportsTab ? (
-          <>
-            <Button size="sm" onClick={() => launch('tab')} disabled={disabled}>
-              <Play /> {label('tab', '새 탭')}
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => launch('window')}
-              disabled={disabled}
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            onClick={() => onTogglePin(session.sessionId, !session.pinned)}
+            title={session.pinned ? '즐겨찾기 해제' : '즐겨찾기'}
+            className="rounded p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <Star className={cn('size-4', session.pinned && 'fill-yellow-500 text-yellow-500')} />
+          </button>
+          {!session.active && (
+            <button
+              onClick={() => setConfirmingDelete(true)}
+              title="세션 삭제 (휴지통으로 이동)"
+              className="rounded p-1 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
             >
-              {label('window', '새 창')}
-            </Button>
-          </>
-        ) : (
-          <Button size="sm" onClick={() => launch('window')} disabled={disabled}>
-            <Play /> {label('window', '실행')}
-          </Button>
-        )}
-        <Button size="sm" variant="outline" onClick={copy}>
-          {copied ? <Check /> : <Copy />} {copied ? '복사됨' : '복사'}
-        </Button>
-        <code className="ml-auto max-w-[38%] truncate rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
-          {session.resumeCommand}
-        </code>
+              <Trash2 className="size-4" />
+            </button>
+          )}
+        </div>
       </div>
+      {confirmingDelete ? (
+        <div className="mt-3 flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">
+            {deleteFailed ? '삭제 실패 — 다시 시도해 주세요' : '휴지통으로 이동할까요? (복구 가능)'}
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setConfirmingDelete(false)}
+            disabled={deleting}
+          >
+            취소
+          </Button>
+          <Button size="sm" variant="destructive" onClick={doDelete} disabled={deleting}>
+            {deleting ? '삭제 중…' : '삭제'}
+          </Button>
+        </div>
+      ) : (
+        <div className="mt-3 flex items-center gap-2">
+          {session.active ? (
+            <Button size="sm" disabled title="이미 실행 중인 세션이라 새로 실행할 수 없어요">
+              <Play /> 진행 중
+            </Button>
+          ) : supportsTab ? (
+            <>
+              <Button size="sm" onClick={() => launch('tab')} disabled={disabled}>
+                <Play /> {label('tab', '새 탭')}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => launch('window')}
+                disabled={disabled}
+              >
+                {label('window', '새 창')}
+              </Button>
+            </>
+          ) : (
+            <Button size="sm" onClick={() => launch('window')} disabled={disabled}>
+              <Play /> {label('window', '실행')}
+            </Button>
+          )}
+          <Button size="sm" variant="outline" onClick={copy}>
+            {copied ? <Check /> : <Copy />} {copied ? '복사됨' : '복사'}
+          </Button>
+          <code className="ml-auto max-w-[38%] truncate rounded bg-muted px-2 py-1 text-xs text-muted-foreground">
+            {session.resumeCommand}
+          </code>
+        </div>
+      )}
     </li>
   );
 }
