@@ -8,7 +8,7 @@ import { listAdapters } from './adapters/index';
 import { getPinned, setPinned } from './store';
 import { generateKoreanTitle } from './title-generator';
 import { getTitle, setTitle, removeTitle } from './title-store';
-import { getLiveSessionIds } from './active';
+import { getLiveSessionIds, killSession } from './active';
 import { trashSession } from './trash';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,6 +63,25 @@ app.post('/api/sessions/:id/launch', async (req: Request, res: Response) => {
     res.json(await launchSession(req.params.id, terminal, mode));
   } catch (e) {
     res.status(400).json({ error: errMsg(e) });
+  }
+});
+
+// 진행 중인 세션 종료 (SIGTERM→SIGKILL). 세션 기록(jsonl)은 보존되어 다시 resume 가능.
+app.post('/api/sessions/:id/terminate', async (req: Request, res: Response) => {
+  const id = req.params.id;
+  if (!isValidSessionId(id)) {
+    res.status(400).json({ error: '잘못된 세션 id' });
+    return;
+  }
+  try {
+    const processes = await killSession(id);
+    if (processes === 0) {
+      res.status(404).json({ error: '실행 중인 세션이 아니에요' });
+      return;
+    }
+    res.json({ terminated: true, processes });
+  } catch (e) {
+    res.status(500).json({ error: errMsg(e) });
   }
 });
 

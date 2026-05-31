@@ -19,6 +19,10 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ terminal, mode }),
     }),
+  terminate: (sessionId: string) =>
+    http<{ terminated: boolean; processes: number }>(`/api/sessions/${sessionId}/terminate`, {
+      method: 'POST',
+    }),
   pin: (sessionId: string) =>
     http<{ pinned: string[] }>(`/api/sessions/${sessionId}/pin`, { method: 'POST' }),
   unpin: (sessionId: string) =>
