@@ -404,7 +404,7 @@ function SessionCard({
             {when} · {loc || '?'} · {session.userTurns} turns
           </div>
           {session.lastPrompt && (
-            <div className="mt-1.5 truncate text-xs text-muted-foreground/80">
+            <div className="mt-1.5 line-clamp-2 text-xs text-muted-foreground/80">
               ⤷ {session.lastPrompt}
             </div>
           )}
