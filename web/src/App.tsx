@@ -12,6 +12,15 @@ import { cn } from '@/lib/utils';
 const needsTitle = (s: Session) => !s.active && !s.noise && !s.koreanTitle;
 const REFRESH_MS = 10_000; // 세션/진행중 상태를 지속 주기 갱신 → 배지 실시간 반영
 
+// jsonl 타임스탬프는 UTC ISO 8601(…Z). 브라우저 로컬 시간(예: KST)으로 변환해 "YYYY-MM-DD HH:MM" 표시.
+function formatWhen(iso: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
@@ -324,7 +333,7 @@ function SessionCard({
   const [deleting, setDeleting] = useState(false);
   const [deleteFailed, setDeleteFailed] = useState(false);
 
-  const when = (session.updatedAt || '').slice(0, 16).replace('T', ' ');
+  const when = formatWhen(session.updatedAt);
   const loc = [session.project, session.gitBranch].filter(Boolean).join(' · ');
   const mainTitle = session.koreanTitle ?? session.title;
   const subTitle = session.koreanTitle ? session.title : null; // 한글 있으면 영어를 서브로
